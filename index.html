@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
+<title>나 사용 설명서</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#F2F5F0;font-family:'Apple SD Gothic Neo','Pretendard',-apple-system,sans-serif;color:#1A2316;}
+#app{max-width:430px;margin:0 auto;min-height:100vh;overflow-x:hidden;}
+button,input,textarea{font-family:inherit;}
+::-webkit-scrollbar{display:none;}
+textarea{resize:none;overflow:hidden;}
+@keyframes bncDot{0%,80%,100%{transform:translateY(0);opacity:.3}40%{transform:translateY(-6px);opacity:1}}
+@keyframes slideUp{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideIn{from{opacity:0;transform:translateX(32px)}to{opacity:1;transform:translateX(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+@keyframes popIn{0%{opacity:0;transform:scale(.85)}100%{opacity:1;transform:scale(1)}}
+.su{animation:slideUp .32s cubic-bezier(.25,.46,.45,.94) both;}
+.si{animation:slideIn .26s cubic-bezier(.25,.46,.45,.94) both;}
+.fi{animation:fadeIn .25s ease both;}
+.shake{animation:shake .35s ease both;}
+.pop{animation:popIn .28s cubic-bezier(.34,1.56,.64,1) both;}
+</style>
+</head>
+<body><div id="app"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script>
+const {useState,useEffect,useCallback,useRef,Fragment,createElement:h}=React;
+
+/* ══════════════════════════
+   디자인 토큰
+══════════════════════════ */
+const C={
+  bg:"#F2F5F0",sur:"#FFFFFF",
+  p:"#4C6444",pL:"#6B8A62",pT:"#3A4E34",
+  ac:"#EBF0E8",bd:"#DDE3D9",
+  ink:"#1A2316",sub:"#5C6B57",mu:"#9AAB94",
+  red:"#C93B2A",rBg:"#FDF2F0",rBd:"#F5C5BF",
+  amb:"#A86D1A",aBg:"#FBF5E8",aBd:"#F0D49A",
+  pur:"#5B4A8A",pBg:"#F3F0FA",pBd:"#C9BEE8",
+  gld:"#9A6E1E",gBg:"#FFFBEB",gBd:"#FDE68A",
+};
+
+/* ══════════════════════════
+   감정 카테고리
+══════════════════════════ */
+const ECATS=[
+  {g:"기쁨",  c:"#D97706",bg:"#FEF3C7",cellBg:"rgba(251,191,36,.18)", neg:false,ems:["평온","기쁨","황홀","만족","설렘","희망"]},
+  {g:"사랑",  c:"#BE185D",bg:"#FCE7F3",cellBg:"rgba(236,72,153,.15)",  neg:false,ems:["사랑","신뢰","감사","따뜻함","애정","그리움"]},
+  {g:"두려움",c:"#1D4ED8",bg:"#DBEAFE",cellBg:"rgba(59,130,246,.15)",  neg:true, ems:["두려움","불안","걱정","긴장","공포","초조"]},
+  {g:"슬픔",  c:"#4338CA",bg:"#E0E7FF",cellBg:"rgba(99,102,241,.15)",  neg:true, ems:["슬픔","우울","무기력","허무함","외로움","후회"]},
+  {g:"분노",  c:"#B91C1C",bg:"#FEE2E2",cellBg:"rgba(239,68,68,.15)",   neg:true, ems:["짜증","답답함","분노","억울함","배신감","불만"]},
+  {g:"기대",  c:"#C2410C",bg:"#FFEDD5",cellBg:"rgba(249,115,22,.15)",  neg:false,ems:["기대","흥분","의욕","집중","각성"]},
+];
+const NEG_EMOS=ECATS.filter(e=>e.neg).flatMap(e=>e.ems);
+const EVENTS =["야근","발표/시험","친구와 다툼","가족 갈등","업무 실수","거절당함","외로움","갑작스러운 변화"];
+const ACTIONS=["그냥 누워있음","유튜브/넷플릭스","혼자 산책","음악 들음","맥주/술","폭식","친구에게 연락","일기 씀","스트레칭","낮잠"];
+const OUTCOMES=[
+  {e:"😌",l:"한결 나아짐",s:5},{e:"🙂",l:"조금 나아짐",s:4},
+  {e:"😐",l:"그냥 그랬음",s:3},{e:"😔",l:"별로 안 나아짐",s:2},{e:"😞",l:"오히려 더 힘듦",s:1},
+];
+const WEEKDAYS=["일","월","화","수","목","금","토"];
+const DFLT={
+  records:[],antiManual:[],happyConditions:[],
+  attachedItems:[],favoriteSpots:[],favoriteDrinks:[],
+  timeCapsules:[],resilienceScore:20,onboarded:false,
+};
+
+/* ══════════════════════════
+   유틸
+══════════════════════════ */
+const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
+const todayISO=new Date().toISOString().slice(0,10);
+const dStr=(y,m,d)=>`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+
+function emoMeta(emo){return ECATS.find(c=>c.ems.includes(emo))||{c:C.mu,bg:C.bg,cellBg:C.bg,g:"기타",neg:false};}
+function scoreSty(s){
+  if(!s)return{color:C.mu,bg:C.bg,bdr:"1px solid "+C.bd};
+  if(s>=4)return{color:C.pT,bg:C.ac,bdr:"1px solid "+C.bd};
+  if(s===3)return{color:C.amb,bg:C.aBg,bdr:"1px solid "+C.aBd};
+  return{color:C.red,bg:C.rBg,bdr:"1px solid "+C.rBd};
+}
+
+function buildPxList(d){
+  const item=pick(d.attachedItems?.length?d.attachedItems:["소중한 물건"]);
+  const spot=pick(d.favoriteSpots?.length?d.favoriteSpots:["좋아하는 장소"]);
+  const drink=pick(d.favoriteDrinks?.length?d.favoriteDrinks:["좋아하는 음료"]);
+  const hap=pick(d.happyConditions?.length?d.happyConditions:["편안한 것"]);
+  return[
+    {icon:"✨",t:item+"와 함께하는 5분",dc:"'"+item+"'을 손에 쥐어보세요.",ev:"애착 물건 기반"},
+    {icon:"🗺",t:spot+" 걷기",dc:"'"+spot+"'까지 걸어가 보세요.",ev:"힐링 장소 기반"},
+    {icon:"☕",t:"'"+drink+"' 한 모금",dc:"'"+drink+"'를 천천히 마셔보세요.",ev:"행복 음료 기반"},
+    {icon:"💚",t:"'"+hap+"' 소환하기",dc:"'"+hap+"'을 지금 실행해보세요.",ev:"행복 조건 기반"},
+    {icon:"📝",t:"감정 3줄 쓰기",dc:"지금 감정을 단어 3개로만 적어보세요.",ev:"인지행동치료 기반"},
+  ];
+}
+
+function makeNarration(r,data){
+  const item=data.attachedItems?.[0]||null;
+  const drink=data.favoriteDrinks?.[0]||null;
+  const spot=data.favoriteSpots?.[0]||null;
+  const hap=data.happyConditions?.[0]||null;
+  const cheatKey=r.action||
+    (item?("'"+item+"'에 '"+(drink||"음료")+"' 마시기"):
+     drink?("'"+drink+"' 마시기"):
+     spot?("'"+spot+"' 산책"):
+     hap?("'"+hap+"' 실행"):"나만의 처방");
+  const altPx=item&&drink?"'"+item+"'에 '"+drink+"' 담아 마시기":
+    spot?"'"+spot+"' 10분 산책":hap?"'"+hap+"' 실행":"다른 처방";
+  const dateStr=new Date(r.date+"T00:00:00").toLocaleDateString("ko-KR",{month:"long",day:"numeric"});
+  const ss=scoreSty(r.outcomeScore);
+  const succeeded=(r.outcomeScore||0)>=4;
+  const failed=(r.outcomeScore||0)<=2&&r.outcomeScore!=null;
+  return{dateStr,cheatKey,altPx,ss,succeeded,failed};
+}
+
+/* ══════════════════════════
+   공용 UI
+══════════════════════════ */
+function Btn({onClick,disabled,full,variant="primary",style:s={},children}){
+  const base={border:"none",borderRadius:14,padding:"15px 20px",fontSize:15,fontWeight:700,
+    cursor:disabled?"not-allowed":"pointer",transition:"opacity .15s",opacity:disabled?.42:1,
+    ...(full?{width:"100%"}:{}),...s};
+  const v={primary:{background:C.p,color:"#fff"},ghost:{background:"transparent",color:C.p,border:"1.5px solid "+C.p},soft:{background:C.ac,color:C.pT},warn:{background:"#FEF3C7",color:"#92400E",border:"1.5px solid #FDE68A"}};
+  return h("button",{onClick,disabled,style:{...base,...(v[variant]||v.primary)}},children);
+}
+
+/* ══════════════════════════
+   하단 Nav (3탭)
+══════════════════════════ */
+function Nav({page,go}){
+  const mk=(...ps)=>h("svg",{width:22,height:22,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:2.2,strokeLinecap:"round",strokeLinejoin:"round"},...ps);
+  const tabs=[
+    {id:"home",lbl:"홈",icon:mk(h("path",{d:"M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"}),h("polyline",{points:"9 22 9 12 15 12 15 22"}))},
+    {id:"record",lbl:"기록하기",icon:mk(h("rect",{x:3,y:4,width:18,height:18,rx:2}),h("line",{x1:16,y1:2,x2:16,y2:6}),h("line",{x1:8,y1:2,x2:8,y2:6}),h("line",{x1:3,y1:10,x2:21,y2:10}),h("path",{d:"M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"}))},
+    {id:"history",lbl:"나의 역사",icon:mk(h("circle",{cx:12,cy:12,r:10}),h("polyline",{points:"12 6 12 12 16 14"}))},
+  ];
+  return h("div",{style:{position:"sticky",bottom:0,background:C.sur,borderTop:"1px solid "+C.bd,display:"flex",zIndex:100}},
+    tabs.map(({id,lbl,icon})=>h("button",{key:id,onClick:()=>go(id),style:{flex:1,padding:"10px 0",background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:page===id?C.p:C.mu,transition:"color .15s"}},
+      icon,h("span",{style:{fontSize:10,fontWeight:page===id?700:500,letterSpacing:"-.2px"}},lbl)
+    ))
+  );
+}
+
+/* ══════════════════════════
+   광고 배너
+══════════════════════════ */
+const ADS=[
+  {emoji:"🍗",brand:"BBQ치킨",copy:"야근한 직장인 87%가 선택한 야식",sub:"황금올리브 오늘만 특가"},
+  {emoji:"☕",brand:"스타벅스",copy:"수고한 오늘의 나에게",sub:"오후 6시 이후 별 2배 적립"},
+  {emoji:"🍜",brand:"배민 야식",copy:"집에서 혼자 먹는 위로의 한 끼",sub:"12시 전 주문 무료배달"},
+  {emoji:"💆",brand:"힐링 마사지",copy:"뭉친 어깨, 오늘은 풀어주세요",sub:"첫 방문 50% 쿠폰"},
+];
+function AdBanner(){
+  const ad=ADS[Math.floor(Math.random()*ADS.length)];
+  return h("div",{style:{background:C.sur,border:"1px solid "+C.bd,borderRadius:16,padding:"12px 14px",marginBottom:12,position:"relative",overflow:"hidden"}},
+    h("div",{style:{position:"absolute",left:0,top:0,bottom:0,width:3,background:C.amb}}),
+    h("span",{style:{position:"absolute",top:10,right:12,fontSize:10,color:C.mu,background:C.bg,borderRadius:4,padding:"2px 6px"}},"광고"),
+    h("div",{style:{display:"flex",alignItems:"center",gap:12,paddingLeft:10}},
+      h("div",{style:{width:42,height:42,borderRadius:11,background:C.aBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}},ad.emoji),
+      h("div",{style:{flex:1}},
+        h("p",{style:{fontSize:11,fontWeight:700,color:C.amb,margin:"0 0 2px"}},"["+ad.brand+"]"),
+        h("p",{style:{fontSize:13,fontWeight:700,color:C.ink,margin:"0 0 2px"}},ad.copy),
+        h("p",{style:{fontSize:11,color:C.sub,margin:0}},ad.sub)
+      )
+    )
+  );
+}
+
+/* ══════════════════════════
+   공용 달력 컴포넌트
+   (기록하기 + 나의 역사 공유)
+══════════════════════════ */
+function MoodCalendar({year,month,records,selDate,onDayClick,showNav,onPrevM,onNextM,isNextDis,highlightToday}){
+  const firstDay=new Date(year,month,1).getDay();
+  const daysInMonth=new Date(year,month+1,0).getDate();
+  const cells=[...Array(firstDay).fill(null),...Array.from({length:daysInMonth},(_,i)=>i+1)];
+  while(cells.length%7!==0)cells.push(null);
+
+  const recMap={};
+  records.forEach(r=>{
+    const d=(r.date||"").slice(0,10);
+    if(!d)return;
+    if(!recMap[d])recMap[d]=[];
+    recMap[d].push(r);
+  });
+
+  function cellMeta(iso){
+    const recs=recMap[iso];
+    if(!recs||!recs.length)return null;
+    const last=recs[recs.length-1];
+    const em=emoMeta(last.emotion||"");
+    const isSOS=recs.some(r=>r.isSOS);
+    const isNeg=last.emotion?NEG_EMOS.includes(last.emotion):isSOS;
+    const score=last.outcomeScore||0;
+    const isWin=isNeg&&score>=4;
+    const isLow=score>0&&score<=2;
+    return{em,isSOS,isNeg,isWin,isLow,score,last};
+  }
+
+  return h("div",null,
+    showNav&&h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}},
+      h("button",{onClick:onPrevM,style:{width:34,height:34,borderRadius:10,background:C.ac,border:"none",cursor:"pointer",fontSize:16,color:C.p,display:"flex",alignItems:"center",justifyContent:"center"}},"<"),
+      h("p",{style:{fontSize:15,fontWeight:800,color:C.ink,margin:0}},year+"년 "+(month+1)+"월"),
+      h("button",{onClick:onNextM,disabled:isNextDis,style:{width:34,height:34,borderRadius:10,background:isNextDis?C.bd:C.ac,border:"none",cursor:isNextDis?"not-allowed":"pointer",fontSize:16,color:isNextDis?C.mu:C.p,display:"flex",alignItems:"center",justifyContent:"center"}},">")
+    ),
+    /* 요일 */
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:4}},
+      WEEKDAYS.map((d,i)=>h("div",{key:d,style:{textAlign:"center",fontSize:11,fontWeight:700,color:i===0?"#C93B2A":i===6?"#1D4ED8":C.mu,padding:"3px 0"}},d))
+    ),
+    /* 날짜 셀 */
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}},
+      cells.map((d,idx)=>{
+        if(!d)return h("div",{key:"e"+idx,style:{aspectRatio:"1"}});
+        const iso=dStr(year,month,d);
+        const meta=cellMeta(iso);
+        const isSel=selDate===iso;
+        const isToday=iso===todayISO;
+        const isFuture=iso>todayISO;
+        const dow=new Date(year,month,d).getDay();
+
+        let cellBg="transparent",cellBdr="none",txtColor;
+        txtColor=isFuture?C.bd:dow===0?"#C93B2A":dow===6?"#1D4ED8":C.ink;
+
+        if(isSel){cellBg=C.p;txtColor="#fff";}
+        else if(meta){
+          if(meta.isWin) cellBg="rgba(52,211,153,.22)";
+          else if(meta.isNeg||meta.isSOS) cellBg=meta.em.cellBg;
+          else cellBg=meta.em.cellBg;
+          if(meta.isSOS) cellBdr="2px solid "+C.red;
+        }
+
+        return h("button",{key:iso,onClick:()=>!isFuture&&onDayClick(iso),disabled:isFuture,style:{
+          aspectRatio:"1",width:"100%",borderRadius:10,
+          border:isSel?"none":cellBdr,
+          cursor:isFuture?"default":"pointer",
+          background:cellBg,
+          color:isSel?"#fff":txtColor,
+          fontSize:13,fontWeight:isToday||isSel?800:400,
+          outline:highlightToday&&isToday&&!isSel?"2.5px solid "+C.p:"none",outlineOffset:"-2px",
+          display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+          gap:2,padding:"3px 2px",transition:"all .15s",position:"relative",
+        }},
+          h("span",null,d),
+          meta&&h("div",{style:{display:"flex",gap:2,alignItems:"center",justifyContent:"center"}},
+            meta.isWin&&h("span",{style:{fontSize:8,color:isSel?"rgba(255,255,255,.9)":"#D97706",lineHeight:1}},"★"),
+            !meta.isWin&&h("div",{style:{width:4,height:4,borderRadius:"50%",background:isSel?"rgba(255,255,255,.7)":meta.em.c}}),
+            meta.isSOS&&h("span",{style:{fontSize:7,lineHeight:1}},"🚨")
+          )
+        );
+      })
+    )
+  );
+}
+
+/* ══════════════════════════
+   기록 입력 오버레이 모달
+   (달력 날짜 클릭 → 열림)
+══════════════════════════ */
+function RecordModal({targetDate,data,onSave,onClose}){
+  const [step,setStep]=useState(0);
+  const [event,setEvent]=useState("");
+  const [emotion,setEmo]=useState("");
+  const [action,setAction]=useState("");
+  const [outcome,setOut]=useState(null);
+  const [antiVisible,setAntiVisible]=useState(false);
+  const [antiShown,setAntiShown]=useState(false);
+  const [ag,setAg]=useState(null); // 감정 카테고리 필터
+
+  const STEPS=["사건","감정","대응","결과"];
+  const dateLabel=new Date(targetDate+"T00:00:00").toLocaleDateString("ko-KR",{month:"long",day:"numeric",weekday:"short"});
+  const isToday=targetDate===todayISO;
+
+  const handleEmo=emo=>{
+    setEmo(emo);
+    if(!antiShown&&NEG_EMOS.includes(emo)&&(data.antiManual||[]).length>0){
+      setTimeout(()=>setAntiVisible(true),150);
+    }
+  };
+
+  const submit=()=>{
+    const newRec={
+      date:targetDate,event,emotion,action,
+      outcomeLabel:outcome?.l,outcomeScore:outcome?.s,
+      isSOS:false,
+    };
+    onSave(newRec);
+  };
+
+  const em=emoMeta(emotion);
+
+  /* 배경 그라디언트 - 감정 선택 시 변화 */
+  const overlayBg=emotion
+    ? `linear-gradient(180deg, ${em.bg} 0%, #FFFFFF 60%)`
+    : "linear-gradient(180deg,#EBF0E8 0%,#FFFFFF 60%)";
+
+  return h("div",{style:{position:"fixed",inset:0,background:"rgba(26,35,22,.55)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"},
+    onClick:(e)=>{if(e.target===e.currentTarget)onClose();}},
+
+    h("div",{style:{background:"#fff",borderRadius:"24px 24px 0 0",maxWidth:430,margin:"0 auto",width:"100%",maxHeight:"90vh",overflowY:"auto",backgroundImage:overlayBg,backgroundAttachment:"local",transition:"background-image .4s ease"},className:"su"},
+
+      /* 핸들 + 헤더 */
+      h("div",{style:{padding:"16px 20px 0"}},
+        h("div",{style:{width:32,height:4,background:C.bd,borderRadius:2,margin:"0 auto 16px"}}),
+        h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}},
+          h("div",null,
+            h("div",{style:{display:"flex",alignItems:"center",gap:8}},
+              h("span",{style:{fontSize:20}},isToday?"✏":"📅"),
+              h("p",{style:{fontSize:15,fontWeight:800,color:C.ink,margin:0}},dateLabel)
+            ),
+            h("p",{style:{fontSize:12,color:C.sub,marginTop:3}},"마음의 날씨를 기록해요")
+          ),
+          h("button",{onClick:onClose,style:{background:"none",border:"none",width:32,height:32,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:C.mu,cursor:"pointer"}},"×")
+        ),
+        /* 스텝 진행 바 */
+        h("div",{style:{display:"flex",gap:4,marginTop:14,marginBottom:0}},
+          STEPS.map((_,i)=>h("div",{key:i,style:{flex:1,height:3,borderRadius:2,background:i<=step?C.p:C.bd,transition:"background .3s"}}))
+        )
+      ),
+
+      /* 안티매뉴얼 경고 (인라인, 슬라이드다운) */
+      antiVisible&&h("div",{style:{margin:"12px 20px 0",background:"#FEF3C7",border:"1.5px solid #FDE68A",borderRadius:14,padding:"14px",position:"relative"},className:"su"},
+        h("button",{onClick:()=>{setAntiVisible(false);setAntiShown(true);},style:{position:"absolute",top:8,right:10,background:"none",border:"none",fontSize:16,color:"#92400E",cursor:"pointer"}},"×"),
+        h("div",{style:{display:"flex",gap:10,alignItems:"flex-start"}},
+          h("span",{style:{fontSize:22,flexShrink:0}},"⚠"),
+          h("div",null,
+            h("p",{style:{fontSize:12,fontWeight:800,color:"#78350F",margin:"0 0 5px",letterSpacing:".3px"}},"ANTI-MANUAL 발동"),
+            h("p",{style:{fontSize:13,color:"#92400E",margin:"0 0 8px",lineHeight:1.6}},
+              "'"+emotion+"' 상태일 때 반복하는 실수들이에요."
+            ),
+            (data.antiManual||[]).slice(0,2).map((a,i)=>h("p",{key:i,style:{fontSize:12,color:"#78350F",margin:"0 0 3px",fontWeight:600}},"⛔ "+a)),
+            h("p",{style:{fontSize:12,color:"#92400E",marginTop:8,fontStyle:"italic"}},"지금 의도적으로 심호흡 3번을 하세요. 🌿")
+          )
+        )
+      ),
+
+      /* 스텝 콘텐츠 */
+      h("div",{style:{padding:"20px 20px 32px"},key:"step"+step,className:"si"},
+
+        /* STEP 0: 사건 */
+        step===0&&h(Fragment,null,
+          h("p",{style:{fontSize:19,fontWeight:800,color:C.ink,marginBottom:4}},"무슨 일이 있었나요?"),
+          h("p",{style:{fontSize:13,color:C.sub,marginBottom:16}},"오늘의 상황을 골라주세요"),
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}},
+            EVENTS.map(opt=>h("button",{key:opt,onClick:()=>setEvent(opt),style:{
+              background:event===opt?C.p:C.sur,color:event===opt?"#fff":C.ink,
+              border:"1.5px solid "+(event===opt?C.p:C.bd),borderRadius:12,
+              padding:"14px 10px",fontSize:13,fontWeight:event===opt?700:400,
+              cursor:"pointer",transition:"all .15s",
+              boxShadow:event===opt?"0 2px 12px rgba(76,100,68,.25)":"none",
+            }},opt))
+          ),
+          h("textarea",{placeholder:"직접 입력...",value:event&&!EVENTS.includes(event)?event:"",
+            onChange:e=>{setEvent(e.target.value);e.target.style.height="auto";e.target.style.height=e.target.scrollHeight+"px";},
+            style:{width:"100%",border:"1.5px solid "+C.bd,borderRadius:12,padding:"12px 14px",fontSize:14,background:"rgba(255,255,255,.7)",boxSizing:"border-box",outline:"none",color:C.ink,minHeight:44,lineHeight:1.5,marginBottom:16}}),
+          h(Btn,{onClick:()=>setStep(1),disabled:!event,full:true},"다음 →")
+        ),
+
+        /* STEP 1: 감정 채색 */
+        step===1&&h(Fragment,null,
+          h("p",{style:{fontSize:19,fontWeight:800,color:C.ink,marginBottom:4}},"어떤 기분이었나요?"),
+          h("p",{style:{fontSize:13,color:C.sub,marginBottom:14}},"감정을 고르면 달력 칸이 채색돼요"),
+          /* 카테고리 탭 */
+          h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}},
+            h("button",{onClick:()=>setAg(null),style:{fontSize:12,fontWeight:600,padding:"5px 12px",borderRadius:20,border:"1.5px solid "+(ag===null?C.p:C.bd),background:ag===null?C.p:"transparent",color:ag===null?"#fff":C.sub,cursor:"pointer"}},"전체"),
+            ECATS.map((cat,i)=>h("button",{key:i,onClick:()=>setAg(ag===i?null:i),style:{fontSize:12,fontWeight:600,padding:"5px 12px",borderRadius:20,border:"1.5px solid "+(ag===i?cat.c:C.bd),background:ag===i?cat.c:"transparent",color:ag===i?"#fff":C.sub,cursor:"pointer"}},[
+              h("span",{style:{display:"inline-block",width:7,height:7,borderRadius:"50%",background:ag===i?"rgba(255,255,255,.8)":cat.c,marginRight:4,verticalAlign:"middle"}}),
+              cat.g
+            ]))
+          ),
+          /* 감정 버튼 */
+          h("div",{style:{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}},
+            (ag!==null?[ECATS[ag]]:ECATS).map(cat=>cat.ems.map(emo=>{
+              const isSel=emotion===emo;
+              return h("button",{key:emo,onClick:()=>handleEmo(emo),style:{
+                padding:"9px 16px",borderRadius:20,fontSize:13,
+                fontWeight:isSel?700:500,cursor:"pointer",
+                background:isSel?cat.c:cat.bg,
+                color:isSel?"#fff":cat.c,
+                border:"1.5px solid "+(isSel?cat.c:cat.c+"50"),
+                transition:"all .12s",
+                boxShadow:isSel?"0 2px 10px "+cat.c+"55":"none",
+                transform:isSel?"scale(1.05)":"scale(1)",
+              }},emo);
+            }))
+          ),
+          /* 선택된 감정 미리보기 */
+          emotion&&h("div",{style:{background:em.bg,border:"1.5px solid "+em.c+"40",borderRadius:12,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10},className:"pop"},
+            h("div",{style:{width:12,height:12,borderRadius:"50%",background:em.c,flexShrink:0}}),
+            h("p",{style:{fontSize:13,fontWeight:700,color:em.c,margin:0}},"'"+emotion+"' — 달력에 "+em.g+" 컬러로 채색돼요")
+          ),
+          h(Btn,{onClick:()=>setStep(2),disabled:!emotion,full:true},emotion?'"'+emotion+'" 완료 →':"감정을 선택해주세요")
+        ),
+
+        /* STEP 2: 대응 */
+        step===2&&h(Fragment,null,
+          h("p",{style:{fontSize:19,fontWeight:800,color:C.ink,marginBottom:4}},"어떻게 행동했나요?"),
+          h("p",{style:{fontSize:13,color:C.sub,marginBottom:16}},"그 상황에서 내가 선택한 행동이에요"),
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}},
+            ACTIONS.map(opt=>h("button",{key:opt,onClick:()=>setAction(opt),style:{
+              background:action===opt?C.p:C.sur,color:action===opt?"#fff":C.ink,
+              border:"1.5px solid "+(action===opt?C.p:C.bd),borderRadius:12,
+              padding:"14px 10px",fontSize:13,fontWeight:action===opt?700:400,
+              cursor:"pointer",transition:"all .15s",
+              boxShadow:action===opt?"0 2px 12px rgba(76,100,68,.25)":"none",
+            }},opt))
+          ),
+          h("textarea",{placeholder:"직접 입력...",value:action&&!ACTIONS.includes(action)?action:"",
+            onChange:e=>{setAction(e.target.value);e.target.style.height="auto";e.target.style.height=e.target.scrollHeight+"px";},
+            style:{width:"100%",border:"1.5px solid "+C.bd,borderRadius:12,padding:"12px 14px",fontSize:14,background:"rgba(255,255,255,.7)",boxSizing:"border-box",outline:"none",color:C.ink,minHeight:44,lineHeight:1.5,marginBottom:16}}),
+          h("div",{style:{display:"flex",gap:8}},
+            h(Btn,{onClick:()=>setStep(1),variant:"ghost",style:{flex:.45,padding:"14px"}},"이전"),
+            h(Btn,{onClick:()=>setStep(3),disabled:!action,full:true,style:{flex:1}},action?"다음 →":"행동을 선택해주세요")
+          )
+        ),
+
+        /* STEP 3: 결과 */
+        step===3&&h(Fragment,null,
+          h("p",{style:{fontSize:19,fontWeight:800,color:C.ink,marginBottom:4}},"그러고 나서 어떻게 됐나요?"),
+          h("p",{style:{fontSize:13,color:C.sub,marginBottom:16}},'"'+action+'" 이후의 상태를 골라주세요'),
+          OUTCOMES.map(opt=>h("button",{key:opt.l,onClick:()=>setOut(opt),style:{
+            width:"100%",background:outcome?.l===opt.l?C.ac:C.sur,
+            border:"1.5px solid "+(outcome?.l===opt.l?C.p:C.bd),
+            borderRadius:14,padding:"15px 16px",display:"flex",alignItems:"center",gap:14,
+            marginBottom:8,cursor:"pointer",textAlign:"left",transition:"all .15s",
+            boxShadow:outcome?.l===opt.l?"0 2px 12px rgba(76,100,68,.2)":"none",
+          }},
+            h("span",{style:{fontSize:26}},opt.e),
+            h("span",{style:{fontSize:14,fontWeight:outcome?.l===opt.l?700:400,color:outcome?.l===opt.l?C.pT:C.ink,flex:1}},opt.l),
+            outcome?.l===opt.l&&h("span",{style:{fontSize:14,color:C.p}},"✓")
+          )),
+          h("div",{style:{display:"flex",gap:8,marginTop:8}},
+            h(Btn,{onClick:()=>setStep(2),variant:"ghost",style:{flex:.45,padding:"14px"}},"이전"),
+            h(Btn,{onClick:submit,disabled:!outcome,full:true,style:{flex:1}},"기록 완료 ✓")
+          )
+        )
+      )
+    )
+  );
+}
+
+/* ══════════════════════════
+   기록 완료 후 보상 화면
+══════════════════════════ */
+function RewardSheet({newRec,data,newScore,onClose}){
+  const [gaugeAnim,setGaugeAnim]=useState(false);
+  useEffect(()=>{setTimeout(()=>setGaugeAnim(true),300);},[]);
+  const ss=scoreSty(newRec.outcomeScore);
+  const em=emoMeta(newRec.emotion||"");
+  const growth=newRec.outcomeScore>=4?5:newRec.outcomeScore>=3?2:0;
+  return h("div",{style:{position:"fixed",inset:0,background:"rgba(26,35,22,.55)",zIndex:210,display:"flex",flexDirection:"column",justifyContent:"flex-end"}},
+    h("div",{style:{background:C.sur,borderRadius:"24px 24px 0 0",padding:"20px 20px 44px",maxWidth:430,margin:"0 auto",width:"100%"},className:"su"},
+      h("div",{style:{width:32,height:4,background:C.bd,borderRadius:2,margin:"0 auto 20px"}}),
+      h("div",{style:{textAlign:"center",marginBottom:20}},
+        h("p",{style:{fontSize:40,marginBottom:8}},"✅"),
+        h("h2",{style:{fontSize:20,fontWeight:800,color:C.ink,marginBottom:4}},"기록 완료!"),
+        h("div",{style:{display:"inline-flex",alignItems:"center",gap:6,background:em.bg,borderRadius:20,padding:"4px 14px"}},
+          h("div",{style:{width:8,height:8,borderRadius:"50%",background:em.c}}),
+          h("span",{style:{fontSize:13,fontWeight:700,color:em.c}},newRec.emotion||"기록됨")
+        )
+      ),
+      /* 오늘 기록 요약 */
+      h("div",{style:{background:C.bg,borderRadius:14,padding:"14px",marginBottom:12}},
+        [["사건",newRec.event],["감정",newRec.emotion],["대응",newRec.action]].map(([k,v],i)=>v&&h("div",{key:i,style:{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:i<2?"1px solid "+C.bd:"none"}},
+          h("span",{style:{fontSize:13,color:C.sub}},k),h("span",{style:{fontSize:13,fontWeight:600,color:C.ink}},v)
+        )),
+        newRec.outcomeLabel&&h("div",{style:{display:"flex",justifyContent:"space-between",padding:"8px 0"}},
+          h("span",{style:{fontSize:13,color:C.sub}},"결과"),h("span",{style:{fontSize:13,fontWeight:700,color:ss.color}},newRec.outcomeLabel)
+        )
+      ),
+      /* 탄력성 게이지 */
+      h("div",{style:{background:C.ac,borderRadius:14,padding:"14px",marginBottom:12}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:8}},
+          h("span",{style:{fontSize:13,fontWeight:700,color:C.pT}},"회복 탄력성 성장"),
+          h("span",{style:{fontSize:14,fontWeight:800,color:C.p}},newScore+"점 "+(growth>0?"+"+growth+"%":""))
+        ),
+        h("div",{style:{height:8,background:"rgba(255,255,255,.6)",borderRadius:4,overflow:"hidden"}},
+          h("div",{style:{height:"100%",background:"linear-gradient(90deg,"+C.p+","+C.pL+")",borderRadius:4,width:gaugeAnim?newScore+"%":"0%",transition:"width 1.2s cubic-bezier(.22,1,.36,1)"}})
+        )
+      ),
+      h(AdBanner,null),
+      h(Btn,{onClick:onClose,full:true,style:{marginBottom:0}},"달력으로 돌아가기 →")
+    )
+  );
+}
+
+/* ══════════════════════════
+   기록하기 페이지
+   (마음 채색 달력 + 모달)
+══════════════════════════ */
+function RecordPage({data,onUpdate,go}){
+  const now=new Date();
+  const [year,setYear]=useState(now.getFullYear());
+  const [month,setMonth]=useState(now.getMonth());
+  const [modalDate,setModalDate]=useState(null);   // 입력 모달 열린 날짜
+  const [doneRec,setDoneRec]=useState(null);        // 완료 후 보상 시트
+  const [records,setRecords]=useState(data.records||[]);
+
+  /* 데이터 동기화 */
+  useEffect(()=>setRecords(data.records||[]),[data.records]);
+
+  const prevM=()=>{if(month===0){setYear(y=>y-1);setMonth(11);}else setMonth(m=>m-1);};
+  const nextM=()=>{const nm=month===11?0:month+1,ny=month===11?year+1:year;if(ny>now.getFullYear()||(ny===now.getFullYear()&&nm>now.getMonth()))return;if(month===11){setYear(y=>y+1);setMonth(0);}else setMonth(m=>m+1);};
+  const isNextDis=year===now.getFullYear()&&month===now.getMonth();
+
+  const mPrefix=`${year}-${String(month+1).padStart(2,"0")}`;
+  const monthRecs=records.filter(r=>(r.date||"").startsWith(mPrefix));
+  const recDays=[...new Set(monthRecs.map(r=>(r.date||"").slice(0,10)))].length;
+  const emoList=[...new Set(monthRecs.map(r=>r.emotion).filter(Boolean))];
+
+  const handleSave=(newRec)=>{
+    const updated=[...records,newRec];
+    const newScore=Math.min(100,(data.resilienceScore||20)+(newRec.outcomeScore>=4?5:newRec.outcomeScore>=3?2:0));
+    onUpdate({records:updated,resilienceScore:newScore});
+    setRecords(updated);
+    setModalDate(null);
+    setDoneRec({...newRec,_score:newScore});
+  };
+
+  return h("div",{style:{minHeight:"100vh",background:C.bg,paddingBottom:80}},
+    /* 헤더 */
+    h("div",{style:{background:C.sur,padding:"52px 20px 16px",borderBottom:"1px solid "+C.bd}},
+      h("h2",{style:{fontSize:22,fontWeight:800,color:C.ink,margin:0}},"마음 채색 달력"),
+      h("p",{style:{fontSize:13,color:C.sub,marginTop:4}},"날짜를 탭해서 오늘의 마음을 기록해요")
+    ),
+
+    h("div",{style:{padding:"16px"}},
+      /* 이달 요약 */
+      h("div",{style:{display:"flex",gap:8,marginBottom:14,overflowX:"auto"}},
+        h("div",{style:{background:C.sur,border:"1px solid "+C.bd,borderRadius:12,padding:"10px 14px",flexShrink:0,textAlign:"center",minWidth:72}},
+          h("p",{style:{fontSize:20,fontWeight:800,color:C.p,margin:0}},recDays),
+          h("p",{style:{fontSize:10,color:C.mu,marginTop:2}},"기록한 날")
+        ),
+        h("div",{style:{background:C.sur,border:"1px solid "+C.bd,borderRadius:12,padding:"10px 14px",flexShrink:0,textAlign:"center",minWidth:72}},
+          h("p",{style:{fontSize:20,fontWeight:800,color:C.p,margin:0}},monthRecs.length),
+          h("p",{style:{fontSize:10,color:C.mu,marginTop:2}},"총 기록수")
+        ),
+        emoList.length>0&&h("div",{style:{background:C.sur,border:"1px solid "+C.bd,borderRadius:12,padding:"10px 14px",flexShrink:0,display:"flex",alignItems:"center",gap:6,minWidth:90}},
+          h("div",{style:{display:"flex",flexWrap:"wrap",gap:3,maxWidth:80}},
+            emoList.slice(0,4).map((emo,i)=>{const em=emoMeta(emo);return h("div",{key:i,style:{width:10,height:10,borderRadius:"50%",background:em.c,title:emo}});})
+          ),
+          h("p",{style:{fontSize:10,color:C.mu,margin:0}},"이달 감정")
+        )
+      ),
+
+      /* 달력 카드 */
+      h("div",{style:{background:C.sur,border:"1px solid "+C.bd,borderRadius:20,padding:"16px",marginBottom:14}},
+        h(MoodCalendar,{
+          year,month,records,
+          selDate:modalDate,
+          onDayClick:(iso)=>setModalDate(iso),
+          showNav:true,
+          onPrevM:prevM,onNextM:nextM,
+          isNextDis,
+          highlightToday:true,
+        }),
+        /* 범례 */
+        h("div",{style:{marginTop:14,paddingTop:12,borderTop:"1px solid "+C.bd}},
+          h("p",{style:{fontSize:10,fontWeight:700,color:C.mu,marginBottom:8,letterSpacing:".3px"}},"감정 범례"),
+          h("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},
+            ECATS.map((cat,i)=>h("div",{key:i,style:{display:"flex",alignItems:"center",gap:4}},
+              h("div",{style:{width:10,height:10,borderRadius:"50%",background:cat.c}}),
+              h("span",{style:{fontSize:10,color:C.sub}},cat.g)
+            )),
+            h("div",{style:{display:"flex",alignItems:"center",gap:4}},
+              h("span",{style:{fontSize:10,color:"#D97706"}},"★"),
+              h("span",{style:{fontSize:10,color:C.sub}},"위기 극복")
+            )
+          )
+        )
+      ),
+
+      /* 오늘 빠른 기록 버튼 */
+      h(Btn,{onClick:()=>setModalDate(todayISO),full:true,style:{marginBottom:12}},"✏ 오늘 기록하기"),
+
+      /* 안내 텍스트 */
+      h("div",{style:{background:C.sur,border:"1px solid "+C.bd,borderRadius:14,padding:"14px",display:"flex",gap:12,alignItems:"flex-start"}},
+        h("span",{style:{fontSize:20,flexShrink:0}},"💡"),
+        h("div",null,
+          h("p",{style:{fontSize:13,fontWeight:700,color:C.ink,marginBottom:4}},"달력 사용법"),
+          h("p",{style:{fontSize:12,color:C.sub,lineHeight:1.7,margin:0}},
+            "• 오늘 또는 과거 날짜를 탭하면 기록 시작\n• 감정 선택 시 달력 칸이 해당 컬러로 채색\n• 부정 감정 선택 시 안티 매뉴얼 자동 발동\n• 기록된 날짜에 점 표시로 감정 히스토리 확인"
+          )
+        )
+      )
+    ),
+
+    /* 입력 모달 */
+    modalDate&&h(RecordModal,{
+      targetDate:modalDate,
+      data,
+      onSave:handleSave,
+      onClose:()=>setModalDate(null),
+    }),
+
+    /* 완료 보상 시트 */
+    doneRec&&h(RewardSheet,{
+      newRec:doneRec,
+      data,
+      newScore:doneRec._score,
+      onClose:()=>setDoneRec(null),
+    })
+  );
+}
+
+/* ══════════════════════════
+   SOS 모달
+══════════════════════════ */
+function SOSModal({data,onClose,onUpdate}){
+  const [phase,setPhase]=useState("anti");
+  const [chosen,setChosen]=useState(null);
+  const [score,setScore]=useState(null);
+  const [elapsed,setElapsed]=useState(0);
+  const px=buildPxList(data);
+  const p=chosen!==null?px[chosen]:null;
+  const cap=(data.timeCapsules||[]).slice(-1)[0];
+  const mins=Math.floor(elapsed/60),secs=elapsed%60;
+  useEffect(()=>{if(phase!=="doing")return;const t=setInterval(()=>setElapsed(v=>v+1),1000);return()=>clearInterval(t);},[phase]);
+  const finish=(sc)=>{
+    const sosRecord={date:todayISO,event:"SOS 비상",emotion:"",action:p?p.t:"SOS 처방",outcomeScore:sc,outcomeLabel:OUTCOMES.find(o=>o.s===sc)?.l||"",isSOS:true};
+    onUpdate({records:[...(data.records||[]),sosRecord],resilienceScore:Math.min(100,(data.resilienceScore||20)+(sc>=4?5:sc>=3?2:0))});
+    onClose();
+  };
+  return h("div",{style:{position:"fixed",inset:0,background:"rgba(26,35,22,.62)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}},
+    h("div",{style:{background:C.sur,borderRadius:"24px 24px 0 0",padding:"20px 20px 44px",maxWidth:430,margin:"0 auto",width:"100%",maxHeight:"92vh",overflowY:"auto"},className:"su"},
+      h("div",{style:{width:32,height:4,background:C.bd,borderRadius:2,margin:"0 auto 20px"}}),
+      phase==="anti"&&h("div",{className:"fi"},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}},
+          h("div",null,h("span",{style:{fontSize:10,fontWeight:700,color:C.red,letterSpacing:"1px",display:"block",marginBottom:4}},"ANTI-MANUAL"),h("h2",{style:{fontSize:20,fontWeight:800,color:C.ink,margin:0}},"먼저 이것만 확인하세요")),
+          h("button",{onClick:onClose,style:{background:"none",border:"none",fontSize:22,color:C.mu,padding:2,lineHeight:1}},"×")
+        ),
+        (data.antiManual||[]).length>0
+          ?h("div",null,(data.antiManual||[]).slice(0,3).map((a,i)=>h("div",{key:i,style:{background:C.rBg,border:"1px solid "+C.rBd,borderRadius:13,padding:"12px 14px",marginBottom:8,display:"flex",gap:10,alignItems:"center"}},
+              h("span",{style:{fontSize:18}},"⛔"),h("div",null,h("p",{style:{fontSize:11,fontWeight:700,color:C.red,margin:"0 0 2px"}},"절대 하지 말 것"),h("p",{style:{fontSize:13,fontWeight:600,color:C.ink,margin:0}},a))
+            )))
+          :h("div",{style:{background:C.ac,borderRadius:12,padding:14,textAlign:"center",marginBottom:12}},h("p",{style:{fontSize:14,color:C.sub,lineHeight:1.6}},"기록하기에서 금기사항을 등록하면 맞춤 경고를 받아요")),
+        h(Btn,{onClick:()=>setPhase("pick"),full:true,style:{marginTop:12}},"처방 받으러 가기 →")
+      ),
+      phase==="pick"&&h("div",{className:"fi"},
+        h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:14}},
+          h("div",null,h("span",{style:{fontSize:10,fontWeight:700,color:C.p,letterSpacing:"1px",display:"block",marginBottom:4}},"PERSONALIZED"),h("h2",{style:{fontSize:20,fontWeight:800,color:C.ink,margin:0}},"당신만을 위한 처방")),
+          h("button",{onClick:onClose,style:{background:"none",border:"none",fontSize:22,color:C.mu,padding:2,lineHeight:1}},"×")
+        ),
+        cap&&h("div",{style:{background:C.gBg,border:"1px solid "+C.gBd,borderRadius:12,padding:"10px 14px",marginBottom:12,display:"flex",gap:8}},
+          h("span",{style:{fontSize:14}},"💌"),h("p",{style:{fontSize:12,color:C.ink,margin:0,fontStyle:"italic",lineHeight:1.6,flex:1}},'"'+cap.message+'"')
+        ),
+        px.map((pr,i)=>h("button",{key:i,onClick:()=>setChosen(i),style:{width:"100%",background:chosen===i?C.ac:"#FAFAF9",border:"1.5px solid "+(chosen===i?C.p:C.bd),borderRadius:14,padding:"12px 14px",display:"flex",gap:12,marginBottom:8,cursor:"pointer",textAlign:"left",transition:"all .15s"}},
+          h("span",{style:{fontSize:20,flexShrink:0,marginTop:2}},pr.icon),h("div",null,h("p",{style:{fontSize:14,fontWeight:700,color:C.ink,margin:"0 0 2px"}},pr.t),h("p",{style:{fontSize:12,color:C.sub,margin:0,lineHeight:1.5}},pr.dc))
+        )),
+        h(Btn,{onClick:()=>setPhase("doing"),disabled:chosen===null,full:true,style:{marginTop:4}},chosen!==null?"시작하기 →":"처방을 선택해주세요")
+      ),
+      phase==="doing"&&p&&h("div",{className:"fi",style:{textAlign:"center"}},
+        h("div",{style:{fontSize:50,marginBottom:10}},p.icon),
+        h("h2",{style:{fontSize:18,fontWeight:800,color:C.ink,marginBottom:4}},p.t),
+        h("p",{style:{fontSize:13,color:C.sub,marginBottom:18,lineHeight:1.6}},p.dc),
+        h("div",{style:{background:C.ac,borderRadius:16,padding:"22px",marginBottom:18}},
+          h("p",{style:{fontSize:12,color:C.p,fontWeight:600,marginBottom:5}},"경과 시간"),
+          h("p",{style:{fontSize:46,fontWeight:800,color:C.pT,margin:0,fontVariantNumeric:"tabular-nums"}},String(mins).padStart(2,"0")+":"+String(secs).padStart(2,"0"))
+        ),
+        h(Btn,{onClick:()=>setPhase("feedback"),full:true},"완료했어요"),
+        h("button",{onClick:onClose,style:{width:"100%",background:"none",border:"none",color:C.mu,fontSize:13,marginTop:10,padding:"8px"}},"그냥 닫기")
+      ),
+      phase==="feedback"&&h("div",{className:"fi",style:{textAlign:"center"}},
+        h("p",{style:{fontSize:34,marginBottom:8}},"🌿"),
+        h("h2",{style:{fontSize:18,fontWeight:800,color:C.ink,marginBottom:14}},"어떠셨나요?"),
+        h("div",{style:{display:"flex",gap:6,justifyContent:"center",marginBottom:18,flexWrap:"wrap"}},
+          [{v:1,e:"😞",l:"전혀"},{v:2,e:"😐",l:"별로"},{v:3,e:"🙂",l:"조금"},{v:4,e:"😊",l:"꽤"},{v:5,e:"🤩",l:"최고!"}].map(({v,e,l})=>
+            h("button",{key:v,onClick:()=>setScore(v),style:{background:score===v?C.ac:"#FAFAF9",border:"1.5px solid "+(score===v?C.p:C.bd),borderRadius:12,padding:"10px 8px",cursor:"pointer",minWidth:54,display:"flex",flexDirection:"column",alignItems:"center",gap:4,transition:"all .15s"}},
+              h("span",{style:{fontSize:22}},e),h("span",{style:{fontSize:10,color:score===v?C.pT:C.mu,fontWeight:600}},l)
+            )
+          )
+        ),
+        h(Btn,{onClick:()=>finish(score),disabled:score===null,full:true},"저장하기 🎁")
+      )
+    )
+  );
+}
+
+/* ══════════════════════════
+   홈 페이지
+══════════════════════════ */
+function HomePage({data,go,onSos}){
+  const dateStr=new Date().toLocaleDateString("ko-KR",{month:"long",day:"numeric",weekday:"short"});
+  const px=buildPxList(data);
+  const res=data.resilienceScore||20;
+  const cap=(data.timeCapsules||[]).slice(-1)[0];
+  return h("div",{style:{paddingBottom:20}},
+    h("div",{style:{padding:"52px 20px 20px",background:C.sur,borderBottom:"1px solid "+C.bd}},
+      h("p",{style:{fontSize:12,color:C.mu,marginBottom:4,fontWeight:500}},dateStr),
+      h("h1",{style:{fontSize:26,fontWeight:800,color:C.ink,margin:0,letterSpacing:"-.5px"}},"안녕하세요 👋"),
+      h("p",{style:{fontSize:13,color:C.sub,marginTop:4}},"오늘 나는 어떤 상태인가요?")
+    ),
+    h("div",{style:{padding:"16px"}},
+      h("button",{onClick:onSos,style:{width:"100%",background:C.red,borderRadius:16,padding:"18px",display:"flex",alignItems:"center",justifyContent:"space-between",border:"none",cursor:"pointer",marginBottom:12}},
+        h("div",{style:{display:"flex",alignItems:"center",gap:14}},
+          h("div",{style:{width:44,height:44,borderRadius:12,background:"rgba(255,255,255,.18)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}},"🆘"),
+          h("div",{style:{textAlign:"left"}},h("p",{style:{fontSize:16,fontWeight:800,color:"#fff",margin:0}},"SOS 비상 버튼"),h("p",{style:{fontSize:11,color:"rgba(255,255,255,.8)",margin:0}},"안티 매뉴얼 + 개인화 처방"))
+        ),h("span",{style:{color:"rgba(255,255,255,.7)",fontSize:20,lineHeight:1}},">")
+      ),
+      h("button",{onClick:()=>go("record"),style:{width:"100%",background:C.sur,border:"1px solid "+C.bd,borderRadius:16,padding:"16px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,cursor:"pointer"}},
+        h("div",{style:{display:"flex",alignItems:"center",gap:12}},
+          h("div",{style:{width:40,height:40,borderRadius:11,background:C.ac,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}},"🎨"),
+          h("div",{style:{textAlign:"left"}},h("p",{style:{fontSize:15,fontWeight:700,color:C.ink,margin:0}},"마음 채색 달력"),h("p",{style:{fontSize:11,color:C.sub,margin:0}},"날짜 탭 → 감정 채색 → 기록"))
+        ),h("span",{style:{color:C.mu,fontSize:18}},">")
+      ),
+      h("div",{style:{background:C.sur,border:"1px solid "+C.bd,borderRadius:16,padding:"16px",marginBottom:12}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:10}},
+          h("div",null,h("p",{style:{fontSize:11,fontWeight:700,color:C.p,margin:"0 0 3px",letterSpacing:".3px"}},"회복 탄력성"),h("p",{style:{fontSize:28,fontWeight:800,color:C.ink,margin:0,letterSpacing:"-1px"}},res+"점")),
+          h("div",{style:{textAlign:"right"}},h("p",{style:{fontSize:11,color:C.mu,margin:"0 0 3px"}},"총 기록"),h("p",{style:{fontSize:22,fontWeight:700,color:C.p,margin:0}},(data.records||[]).length+"일"))
+        ),
+        h("div",{style:{height:6,background:C.ac,borderRadius:3,overflow:"hidden"}},h("div",{style:{height:"100%",background:"linear-gradient(90deg,"+C.p+","+C.pL+")",borderRadius:3,width:res+"%",transition:"width 1s ease"}})),
+        h("p",{style:{fontSize:11,color:C.mu,marginTop:6}},res<40?"초급 · 자기 이해 시작 🌱":res<70?"중급 · 패턴 인식 중 🌿":"고급 · 감정 조절 능숙 🌳")
+      ),
+      h("div",{style:{background:C.sur,border:"1px solid "+C.bd,borderRadius:16,padding:"16px",marginBottom:12}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+          h("p",{style:{fontSize:14,fontWeight:700,color:C.ink,margin:0}},"나만의 맞춤 처방"),
+          h("span",{style:{fontSize:10,fontWeight:700,color:C.p,background:C.ac,borderRadius:20,padding:"3px 8px"}},"데이터 기반")
+        ),
+        px.slice(0,3).map((s,i)=>h("div",{key:i,style:{display:"flex",gap:10,padding:"9px 0",borderTop:i>0?"1px solid "+C.bd:"none"}},
+          h("span",{style:{fontSize:16,marginTop:1}},s.icon),h("div",null,h("p",{style:{fontSize:13,fontWeight:600,color:C.ink,margin:"0 0 2px"}},s.t),h("p",{style:{fontSize:11,color:C.sub,margin:0}},s.dc))
+        ))
+      ),
+      cap&&h("div",{style:{background:C.gBg,border:"1px solid "+C.gBd,borderRadius:16,padding:"14px 16px",marginBottom:12}},
+        h("p",{style:{fontSize:10,fontWeight:700,color:C.gld,margin:"0 0 6px",letterSpacing:".5px"}},"SELF-MESSAGE"),
+        h("p",{style:{fontSize:13,color:C.ink,margin:0,fontStyle:"italic",lineHeight:1.7}},'"'+cap.message+'"')
+      ),
+      h(AdBanner,null),
+      h("div",{style:{background:C.pBg,border:"1px solid "+C.pBd,borderRadius:16,padding:"14px 16px"}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+          h("div",null,h("p",{style:{fontSize:12,fontWeight:700,color:C.pur,margin:"0 0 3px"}},"PRO · 월 4,900원"),h("p",{style:{fontSize:13,fontWeight:700,color:C.ink,margin:0}},"안티 매뉴얼 앱 강제 차단")),
+          h("button",{style:{background:C.pur,color:"#fff",border:"none",borderRadius:10,padding:"9px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}},"7일 무료")
+        )
+      )
+    )
+  );
+}
+
+/* ══════════════════════════
+   나의 역사 페이지
+══════════════════════════ */
+function HistoryPage({data,go}){
+  const now=new Date();
+  const [year,setYear]=useState(now.getFullYear());
+  const [month,setMonth]=useState(now.getMonth());
+  const [selDate,setSelDate]=useState(null);
+  const [noteKey,setNoteKey]=useState(0);
+
+  const prevM=()=>{if(month===0){setYear(y=>y-1);setMonth(11);}else setMonth(m=>m-1);setSelDate(null);};
+  const nextM=()=>{const nm=month===11?0:month+1,ny=month===11?year+1:year;if(ny>now.getFullYear()||(ny===now.getFullYear()&&nm>now.getMonth()))return;if(month===11){setYear(y=>y+1);setMonth(0);}else setMonth(m=>m+1);setSelDate(null);};
+  const isNextDis=year===now.getFullYear()&&month===now.getMonth();
+
+  const mPrefix=`${year}-${String(month+1).padStart(2,"0")}`;
+  const monthRecs=(data.records||[]).filter(r=>(r.date||"").startsWith(mPrefix));
+  const winCount=monthRecs.filter(r=>(r.outcomeScore||0)>=4&&(r.isSOS||NEG_EMOS.includes(r.emotion||""))).length;
+  const sosCount=monthRecs.filter(r=>r.isSOS).length;
+  const recDays=[...new Set(monthRecs.map(r=>(r.date||"").slice(0,10)))].length;
+
+  const recMap={};
+  (data.records||[]).forEach(r=>{
+    const d=(r.date||"").slice(0,10);if(!d)return;
+    if(!recMap[d])recMap[d]=[];recMap[d].push(r);
+  });
+
+  const handleDay=(iso)=>{
+    if(selDate===iso){setSelDate(null);return;}
+    setSelDate(iso);setNoteKey(k=>k+1);
+  };
+
+  const selRecs=selDate?(recMap[selDate]||[]):null;
+
+  return h("div",{style:{minHeight:"100vh",background:C.bg,paddingBottom:80}},
+    h("div",{style:{background:C.sur,padding:"52px 20px 16px",borderBottom:"1px solid "+C.bd}},
+      h("h2",{style:{fontSize:22,fontWeight:800,color:C.ink,margin:0}},"나의 역사"),
+      h("p",{style:{fontSize:13,color:C.sub,marginTop:4}},(data.records||[]).length>0?(data.records||[]).length+"개의 기록이 쌓였어요":"기록이 쌓이면 나의 패턴이 보여요")
+    ),
+    h("div",{style:{padding:"16px"}},
+      /* 이달 요약 칩 */
+      (data.records||[]).length>0&&h("div",{style:{display:"flex",gap:8,marginBottom:12,overflowX:"auto"}},
+        h("div",{style:{background:C.sur,border:"1px solid "+C.bd,borderRadius:12,padding:"8px 14px",flexShrink:0,textAlign:"center",minWidth:72}},h("p",{style:{fontSize:18,fontWeight:800,color:C.p,margin:0}},recDays),h("p",{style:{fontSize:10,color:C.mu,marginTop:2}},"기록된 날")),
+        h("div",{style:{background:C.gBg,border:"1px solid "+C.gBd,borderRadius:12,padding:"8px 14px",flexShrink:0,textAlign:"center",minWidth:72}},h("p",{style:{fontSize:18,fontWeight:800,color:C.gld,margin:0}},"★ "+winCount),h("p",{style:{fontSize:10,color:C.mu,marginTop:2}},"극복한 날")),
+        h("div",{style:{background:C.rBg,border:"1px solid "+C.rBd,borderRadius:12,padding:"8px 14px",flexShrink:0,textAlign:"center",minWidth:72}},h("p",{style:{fontSize:18,fontWeight:800,color:C.red,margin:0}},"🚨 "+sosCount),h("p",{style:{fontSize:10,color:C.mu,marginTop:2}},"SOS 출동"))
+      ),
+      /* 달력 */
+      h("div",{style:{background:C.sur,border:"1px solid "+C.bd,borderRadius:20,padding:"16px",marginBottom:12}},
+        h(MoodCalendar,{year,month,records:data.records||[],selDate,onDayClick:handleDay,showNav:true,onPrevM:prevM,onNextM:nextM,isNextDis,highlightToday:true}),
+        h("div",{style:{marginTop:14,paddingTop:12,borderTop:"1px solid "+C.bd}},
+          h("p",{style:{fontSize:10,fontWeight:700,color:C.mu,marginBottom:8,letterSpacing:".3px"}},"범례"),
+          h("div",{style:{display:"flex",gap:10,flexWrap:"wrap"}},
+            [{dot:"★",color:"#D97706",bg:"#D1FAE5",label:"위기 극복"},{dot:"●",color:C.red,bg:C.rBg,label:"부정 감정",bdr:"2px solid "+C.red},{dot:"🚨",label:"SOS 출동"}].map((lg,i)=>
+              h("div",{key:i,style:{display:"flex",alignItems:"center",gap:5}},
+                h("div",{style:{width:18,height:18,borderRadius:5,background:lg.bg||C.bg,border:lg.bdr||"1px solid "+C.bd,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:lg.color||C.ink,fontWeight:700,flexShrink:0}},lg.dot),
+                h("span",{style:{fontSize:10,color:C.sub}},lg.label)
+              )
+            )
+          )
+        )
+      ),
+      /* 선택된 날 오답 노트 */
+      selDate&&h("div",{key:"note"+noteKey,className:"su"},
+        h("p",{style:{fontSize:12,fontWeight:700,color:C.mu,marginBottom:10,letterSpacing:".3px"}},new Date(selDate+"T00:00:00").toLocaleDateString("ko-KR",{year:"numeric",month:"long",day:"numeric",weekday:"short"})),
+        selRecs&&selRecs.length>0
+          ?h(Fragment,null,
+              selRecs.map((r,ri)=>{
+                const {dateStr,cheatKey,altPx,ss,succeeded,failed}=makeNarration(r,data);
+                const ec=emoMeta(r.emotion||"");
+                return h("div",{key:ri,style:{background:C.sur,border:"1px solid "+C.bd,borderRadius:18,overflow:"hidden",marginBottom:10}},
+                  h("div",{style:{height:4,background:succeeded?"linear-gradient(90deg,"+C.p+","+C.pL+")":failed?C.red:C.amb}}),
+                  h("div",{style:{padding:"16px"}},
+                    h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}},
+                      r.isSOS&&h("span",{style:{fontSize:11,fontWeight:700,color:"#fff",background:C.red,borderRadius:20,padding:"3px 10px"}},"🚨 SOS 출동 기록"),
+                      r.emotion&&h("span",{style:{fontSize:11,fontWeight:700,color:ec.c,background:ec.bg,borderRadius:20,padding:"3px 10px"}},r.emotion),
+                      r.outcomeLabel&&h("span",{style:{fontSize:11,fontWeight:700,color:ss.color,background:ss.bg,borderRadius:20,padding:"3px 10px"}},r.outcomeLabel),
+                      succeeded&&h("span",{style:{fontSize:11,fontWeight:700,color:"#D97706",background:"#FEF3C7",borderRadius:20,padding:"3px 10px"}},"★ 극복 성공")
+                    ),
+                    h("div",{style:{marginBottom:12}},
+                      h("p",{style:{fontSize:10,fontWeight:700,color:C.mu,letterSpacing:".5px",marginBottom:6}},"CRISIS · 당시의 위기"),
+                      h("p",{style:{fontSize:14,color:C.ink,lineHeight:1.8,margin:0}},
+                        h("span",{style:{fontWeight:700}},dateStr),", ",
+                        r.event&&h(Fragment,null,h("span",{style:{fontWeight:700,background:"#F3F4F6",borderRadius:6,padding:"1px 6px"}},r.event)," 상황에서 "),
+                        r.emotion&&h("span",{style:{fontWeight:700,color:ec.c}},"'"+r.emotion+"'"),
+                        "을 느꼈습니다.",
+                        (data.antiManual||[]).length>0&&h("span",{style:{color:C.red,fontWeight:600}}," 안티 매뉴얼 ("+data.antiManual.slice(0,2).join(", ")+") 발동 위험이 있었습니다.")
+                      )
+                    ),
+                    h("div",{style:{background:C.ac,borderRadius:12,padding:"12px 14px",marginBottom:12}},
+                      h("p",{style:{fontSize:10,fontWeight:700,color:C.pT,letterSpacing:".5px",marginBottom:6}},"CHEAT KEY · 나를 구한 치트키"),
+                      h("p",{style:{fontSize:14,color:C.ink,lineHeight:1.8,margin:0}},
+                        "하지만 당신은 ",h("span",{style:{fontWeight:700,color:C.pT,background:C.sur,borderRadius:6,padding:"1px 6px",border:"1px solid "+C.bd}},"'"+cheatKey+"'"),"를 실행했습니다."
+                      )
+                    ),
+                    h("div",{style:{background:succeeded?C.ac:failed?C.rBg:C.aBg,borderRadius:12,padding:"12px 14px"}},
+                      h("p",{style:{fontSize:10,fontWeight:700,color:succeeded?C.pT:failed?C.red:C.amb,letterSpacing:".5px",marginBottom:6}},"RESULT · 회복 결과"),
+                      succeeded
+                        ?h("p",{style:{fontSize:14,color:C.ink,lineHeight:1.8,margin:0}},
+                            "그 결과 ",h("span",{style:{fontWeight:700,color:C.pT}},r.outcomeLabel||"긍정적으로"),"으로 회복되었으며, 회복 탄력성 지수가 ",h("span",{style:{fontWeight:700,color:C.p}},"+5%")," 상승했습니다. 🌱"
+                          )
+                        :failed
+                        ?h("p",{style:{fontSize:14,color:C.ink,lineHeight:1.8,margin:0}},
+                            "이번 처방은 효과가 적었네요. 다음번엔 ",h("span",{style:{fontWeight:700,color:C.p}},"'"+altPx+"'"),"을 결합해 더 나은 처방을 준비할게요. 💪"
+                          )
+                        :h("p",{style:{fontSize:14,color:C.ink,lineHeight:1.8,margin:0}},
+                            "상태가 ",h("span",{style:{fontWeight:700,color:C.amb}},r.outcomeLabel||"보통"),"으로 기록되었습니다. 기록이 쌓일수록 더 정교해져요."
+                          )
+                    )
+                  )
+                );
+              }),
+              h("div",{style:{background:C.pBg,border:"1px solid "+C.pBd,borderRadius:14,padding:"12px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}},
+                h("div",null,h("p",{style:{fontSize:11,fontWeight:700,color:C.pur,margin:"0 0 2px"}},"PRO · 월 4,900원"),h("p",{style:{fontSize:13,fontWeight:700,color:C.ink,margin:0}},"안티 매뉴얼 앱 차단하기")),
+                h("button",{style:{background:C.pur,color:"#fff",border:"none",borderRadius:9,padding:"8px 12px",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}},"시작")
+              )
+            )
+          :h("div",{style:{background:C.sur,border:"1px solid "+C.bd,borderRadius:18,padding:"28px",textAlign:"center"}},
+              h("p",{style:{fontSize:28,marginBottom:10}},"📭"),
+              h("p",{style:{fontSize:15,fontWeight:700,color:C.ink,marginBottom:6}},"이날은 기록이 없어요"),
+              h("p",{style:{fontSize:13,color:C.sub,marginBottom:18,lineHeight:1.6}},"소중한 자아 데이터를 채워보세요"),
+              h(Btn,{onClick:()=>go("record"),style:{padding:"12px 24px"}},"기록하기 →")
+            )
+      ),
+      !(data.records||[]).length&&!selDate&&h("div",{style:{textAlign:"center",padding:"28px 0"},className:"fi"},
+        h("p",{style:{fontSize:36,marginBottom:10}},"📅"),
+        h("p",{style:{fontSize:15,fontWeight:700,color:C.ink,marginBottom:6}},"아직 기록이 없어요"),
+        h("p",{style:{fontSize:13,color:C.sub,marginBottom:20}},"기록하기 탭에서 첫 기록을 시작해보세요"),
+        h(Btn,{onClick:()=>go("record")},"기록 시작하기")
+      )
+    )
+  );
+}
+
+/* ══════════════════════════
+   온보딩
+══════════════════════════ */
+function Onboarding({onDone}){
+  const STEPS=[
+    {q:"가장 아끼는 애착 물건이 있나요?",ph:"예: 노란 머그컵, 할머니 목도리",f:"attachedItems"},
+    {q:"마음이 편해지는 장소는?",ph:"예: 도서관 뒷길, 한강 벤치",f:"favoriteSpots"},
+    {q:"자주 마시는 음료는?",ph:"예: 얼그레이, 아이스아메리카노",f:"favoriteDrinks"},
+    {q:"스트레스가 풀리는 나만의 방법은?",ph:"예: 강아지 사진 보기, 산책",f:"happyConditions"},
+  ];
+  const [step,setStep]=useState(0);
+  const [vals,setVals]=useState(["","","",""]);
+  const s=STEPS[step],isLast=step===STEPS.length-1;
+  const next=()=>{
+    if(isLast){const r={};STEPS.forEach((st,i)=>{if(vals[i].trim())r[st.f]=[vals[i].trim()];});onDone(r);}
+    else setStep(step+1);
+  };
+  return h("div",{style:{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",justifyContent:"center",padding:"32px 20px"}},
+    h("div",{style:{textAlign:"center",marginBottom:28}},
+      h("div",{style:{width:52,height:52,borderRadius:14,background:C.ac,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,margin:"0 auto 10px"}},"📖"),
+      h("h1",{style:{fontSize:22,fontWeight:800,color:C.ink,marginBottom:6}},"나 사용 설명서"),
+      h("p",{style:{fontSize:13,color:C.sub}},"처방을 개인화하기 위한 기본 정보예요")
+    ),
+    h("div",{style:{background:C.sur,borderRadius:20,padding:"24px 20px",border:"1px solid "+C.bd},className:"su",key:"ob"+step},
+      h("div",{style:{display:"flex",gap:4,marginBottom:18}},STEPS.map((_,i)=>h("div",{key:i,style:{flex:1,height:3,borderRadius:2,background:i<=step?C.p:C.bd,transition:"background .3s"}}))),
+      h("p",{style:{fontSize:11,fontWeight:600,color:C.mu,marginBottom:6,letterSpacing:".3px"}},(step+1)+" / "+STEPS.length),
+      h("h2",{style:{fontSize:18,fontWeight:700,color:C.ink,marginBottom:14}},s.q),
+      h("input",{value:vals[step],onChange:e=>{const n=[...vals];n[step]=e.target.value;setVals(n);},onKeyDown:e=>{if(e.key==="Enter"&&vals[step].trim())next();},placeholder:s.ph,autoFocus:true,style:{width:"100%",border:"1.5px solid "+(vals[step]?C.p:C.bd),borderRadius:12,padding:"13px 14px",fontSize:14,background:C.bg,boxSizing:"border-box",outline:"none",color:C.ink,transition:"border .15s"}}),
+      h("p",{style:{fontSize:12,color:C.mu,marginTop:6,marginBottom:16}},"없으면 건너뛰어도 괜찮아요"),
+      h("div",{style:{display:"flex",gap:8}},
+        step>0&&h(Btn,{onClick:()=>setStep(step-1),variant:"ghost",style:{flex:.5,padding:"13px 16px"}},"이전"),
+        h(Btn,{onClick:next,full:true,style:{flex:1}},isLast?"시작하기 →":"다음")
+      )
+    )
+  );
+}
+
+/* ══════════════════════════
+   APP
+══════════════════════════ */
+function App(){
+  const [data,setData]=useState(DFLT);
+  const [page,setPage]=useState("home");
+  const [sos,setSos]=useState(false);
+  const update=useCallback(patch=>setData(prev=>({...prev,...patch})),[]);
+  if(!data.onboarded)return h(Onboarding,{onDone:extra=>update({...extra,onboarded:true})});
+  return h("div",{style:{fontFamily:"'Apple SD Gothic Neo','Pretendard',-apple-system,sans-serif",background:C.bg,maxWidth:430,margin:"0 auto",minHeight:"100vh",position:"relative"}},
+    page==="home"   &&h(HomePage,   {data,go:setPage,onSos:()=>setSos(true)}),
+    page==="record" &&h(RecordPage, {data,onUpdate:update,go:setPage}),
+    page==="history"&&h(HistoryPage,{data,go:setPage}),
+    sos&&h(SOSModal,{data,onClose:()=>setSos(false),onUpdate:update}),
+    !sos&&page!=="record"&&h(Nav,{page,go:setPage}),
+    page==="record"&&h(Nav,{page,go:setPage})
+  );
+}
+ReactDOM.createRoot(document.getElementById("app")).render(h(App));
+</script>
+</body>
+</html>
